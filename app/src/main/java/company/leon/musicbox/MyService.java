@@ -16,7 +16,7 @@ import java.io.File;
 import static android.os.Environment.DIRECTORY_DOWNLOADS;
 
 public class MyService extends Service {
-    public static final int  START =1, PAUSE =2, CONTINUE=3, STOP =4, PULL=5;
+    public static final int  START =1, PAUSE =2, CONTINUE=3, STOP =4, PULL=5, REFRESH=6;
     public MyService() {
 
     }
@@ -24,9 +24,8 @@ public class MyService extends Service {
     private IBinder myBinder;
     @Override
     public IBinder onBind(Intent intent) {
+        Log.e("onBind","onBindExe************");
         return myBinder;
-        // TODO: Return the communication channel to the service.
-        //throw new UnsupportedOperationException("Not yet implemented");
     }
 
     public class MyBinder extends Binder {
@@ -34,7 +33,9 @@ public class MyService extends Service {
         protected boolean onTransact(int code, Parcel data, Parcel reply, int flags) throws RemoteException {
             switch (code){
                 case START:
-                    Log.e("mediaPlayer","TESTTESTTESTTESTTESTTESTTESTTESTTESTTESTTESTTEST88");
+                    mediaPlayer.start();
+                    Log.d("mediaPlayer","start**************************88");
+                    reply.writeInt(mediaPlayer.getDuration());
                     break;
                 case PAUSE:
                     mediaPlayer.pause();
@@ -50,11 +51,14 @@ public class MyService extends Service {
                     //mediaPlayer.release();
                     break;
                 case PULL:
-                    //mediaPlayer.start();
+                    mediaPlayer.seekTo(data.readInt());
+                    break;
+                case REFRESH:
+                    reply.writeInt(mediaPlayer.getCurrentPosition());
                     break;
                 default:
                     Log.d("mediaPlayer","TESTTEST**************************88");
-                        break;
+                    break;
             }
             return super.onTransact(code, data, reply, flags);
         }
@@ -64,6 +68,8 @@ public class MyService extends Service {
     @Override
     public void onCreate() {
         Log.d("Service","onCreate**************************************88");
+        initMediaPlayer();
+        Log.d("mediaPlayer","init**************************88");
         super.onCreate();
     }
 
@@ -71,8 +77,6 @@ public class MyService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         Log.d("Service","onStartCommand**************************************88");
         myBinder = new MyBinder();
-        initMediaPlayer();
-        Log.d("mediaPlayer","init**************************88");
         return super.onStartCommand(intent, flags, startId);
     }
 
@@ -99,6 +103,7 @@ public class MyService extends Service {
         try{
             mediaPlayer = new MediaPlayer();
             Log.d("mediaPlayer","new**************************88");
+            //获取Download文件夹下的音乐文件
             File file = new File(Environment.getExternalStoragePublicDirectory(DIRECTORY_DOWNLOADS),"melt.mp3");
             if(file.exists()){
                 mediaPlayer.setDataSource(file.getPath());
@@ -107,8 +112,6 @@ public class MyService extends Service {
                 Log.d("mediaPlayer","prepare**************************88");
                 mediaPlayer.setLooping(true);
                 Log.d("mediaPlayer","setLoop**************************88");
-                mediaPlayer.start();
-                Log.d("mediaPlayer","start**************************88");
             }else {
                 Toast.makeText(this,"找不到文件",Toast.LENGTH_SHORT).show();
                 stopSelf();
