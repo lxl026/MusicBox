@@ -13,6 +13,7 @@ import android.os.IBinder;
 import android.os.Message;
 import android.os.Parcel;
 import android.os.RemoteException;
+import android.os.SystemClock;
 import android.support.annotation.NonNull;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
@@ -27,12 +28,26 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 public class MainActivity extends AppCompatActivity implements View.OnClickListener{
-    public static final int  START =1, PAUSE =2, CONTINUE=3, STOP =4, PULL=5;
+    public static final int  START =1, PAUSE =2, CONTINUE=3, STOP =4, PULL=5, REFRESH=6;
     private java.text.SimpleDateFormat time = new java.text.SimpleDateFormat("mm:ss");
+    int Duration;
+    int CurTime;
     private IBinder mBinder;
-    private ServiceConnection mConnection;
+    private ServiceConnection mConnection = new ServiceConnection(){
+        @Override
+        public void onServiceConnected(ComponentName name, IBinder service) {
+            mBinder = service;
+            Log.d("Server","Connection****************************");
+        }
+
+        @Override
+        public void onServiceDisconnected(ComponentName name) {
+            Log.d("Server","Unconnection*****************************");
+            mConnection = null;
+        }
+    };
+    private Thread thread;
     int flag=STOP;
-    boolean isFistRun=true;
     Button PlayPause;
     Button Stop;
     Button Quit;
@@ -47,7 +62,8 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                     StatusText.setText("Playing");
                     PlayPause.setText("PAUSE");
                     animator.start();
-                    RightText.setText(time.format(1000));
+                    RightText.setText(time.format(Duration));
+                    seekBar.setEnabled(true);
                     break;
                 case PAUSE:
                     StatusText.setText("Paused");
@@ -63,9 +79,12 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                     StatusText.setText("Stopped");
                     PlayPause.setText("PLAY");
                     animator.end();
+                    seekBar.setProgress(0);
+                    seekBar.setEnabled(false);
                     break;
-                case PULL:
-
+                case REFRESH:
+                    seekBar.setProgress(CurTime*100/Duration);
+                    LeftText.setText(time.format(CurTime));
                     break;
                 default:
                     break;
@@ -77,6 +96,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         seekBar = (SeekBar) findViewById(R.id.seekBar) ;
+        seekBar.setEnabled(false);
         PlayPause = (Button) findViewById(R.id.PlayButton);
         Stop = (Button) findViewById(R.id.StopButton);
         Quit = (Button) findViewById(R.id.QuitButton);
@@ -91,6 +111,12 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         StatusText = (TextView) findViewById(R.id.Status);
         LeftText = (TextView) findViewById(R.id.LeftText);
         RightText = (TextView) findViewById(R.id.RightText);
+
+        thread = new Thread(new SeekBarThread());
+        // 启动线程
+        thread.start();
+
+
         if(ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
                 != PackageManager.PERMISSION_GRANTED){
             ActivityCompat.requestPermissions(MainActivity.this,new String[]{
@@ -98,22 +124,36 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         }else{
 
         }
-        mConnection = new ServiceConnection(){
+        seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+
+            // SeekBar滚动时的回调函数
             @Override
-            public void onServiceConnected(ComponentName name, IBinder service) {
-                mBinder = service;
-                Log.d("Server","Connection****************************");
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                CurTime = progress*Duration/100;
             }
 
+            //SeekBar开始滚动的回调函数
             @Override
-            public void onServiceDisconnected(ComponentName name) {
-                Log.d("Server","Unconnection*****************************");
-                mConnection = null;
+            public void onStartTrackingTouch(SeekBar seekBar) {
+                flag = PULL;
             }
-        };
-        mBinder=new Binder() ;
 
-
+            // SeekBar结束滚动时的回调函数
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+                try{
+                    int code = PULL;
+                    Parcel data = Parcel.obtain();
+                    Parcel reply = Parcel.obtain();
+                    data.writeInt(CurTime);
+                    mBinder.transact(code,data,reply,0);
+                    Log.d("Main","mediaPlayer.pull*******************");
+                }catch (RemoteException e){
+                    e.printStackTrace();
+                }
+                flag=CONTINUE;
+            }
+        });
     }
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
@@ -137,6 +177,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             case R.id.PlayButton:
                 if(flag==STOP){//启动
                     //启动服务
+                    mBinder=new Binder() ;
                     Intent intent = new Intent(this,MyService.class);
                     startService(intent);
                     Log.d("Main","StartService*******************");
@@ -145,25 +186,28 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                     new Thread(new Runnable() {
                         @Override
                         public void run() {
-                            Message msg = new Message();
-                            msg.what = START;
-                            handler.sendMessage(msg);
-                            flag = START;
+                            SystemClock.sleep(100);
                             try{
+
                                 int code = START;
                                 Parcel data = Parcel.obtain();
                                 Parcel reply = Parcel.obtain();
                                 mBinder.transact(code,data,reply,0);
-                                int i=reply.readInt();
-                                System.out.println(i);
+                                Duration=reply.readInt();
+                                System.out.println(Duration);
                                 //Log.d("reply",)
                                 Log.d("Main","mediaPlayer.start*******************");
                             }catch (RemoteException e){
                                 e.printStackTrace();
                             }
+                            Message msg = new Message();
+                            msg.what = START;
+                            handler.sendMessage(msg);
+                            flag = START;
                         }
                     }).start();
-                }else if(flag==START){//暂停
+
+                }else if(flag==START || flag==CONTINUE){//暂停
                     new Thread(new Runnable() {
                         @Override
                         public void run() {
@@ -182,25 +226,6 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                     }catch (RemoteException e){
                         e.printStackTrace();
                     }
-                }else if(flag==CONTINUE){//暂停
-                    new Thread(new Runnable() {
-                        @Override
-                        public void run() {
-                            Message msg = new Message();
-                            msg.what = PAUSE;
-                            handler.sendMessage(msg);
-                            flag = PAUSE;
-                        }
-                    }).start();
-                    try{
-                        int code = PAUSE;
-                        Parcel data = Parcel.obtain();
-                        Parcel reply = Parcel.obtain();
-                        mBinder.transact(code,data,reply,0);
-                        Log.d("Main","mediaPlayer.start*******************");
-                    }catch (RemoteException e){
-                        e.printStackTrace();
-                    }
                 }else if(flag==PAUSE){//继续
                     new Thread(new Runnable() {
                         @Override
@@ -209,6 +234,28 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                             msg.what = CONTINUE;
                             handler.sendMessage(msg);
                             flag = CONTINUE;
+                        }
+                    }).start();
+                    new Thread(new Runnable() {
+                        @Override
+                        public void run() {
+                            while(flag == START || flag == CONTINUE){
+                                SystemClock.sleep(500);
+                                try{
+                                    int code = REFRESH;
+                                    Parcel data = Parcel.obtain();
+                                    Parcel reply = Parcel.obtain();
+                                    mBinder.transact(code,data,reply,0);
+                                    CurTime=reply.readInt();
+                                    Log.d("Main","REFRESH.start*******************");
+                                }catch (RemoteException e){
+                                    e.printStackTrace();
+                                }
+                                Message msg = new Message();
+                                msg.what = REFRESH;
+                                handler.sendMessage(msg);
+                            }
+
                         }
                     }).start();
                     try{
@@ -272,6 +319,41 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         }
     }
 
+    // 自定义的线程
+    class SeekBarThread implements Runnable {
+
+        @Override
+        public void run() {
+            while (true){
+                while (flag==START || flag==CONTINUE) {
+                    // 将SeekBar位置设置到当前播放位置
+                    try {
+                        // 每100毫秒更新一次位置
+                        Thread.sleep(1000);
+                        //播放进度
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+                    try{
+                        if(flag==START || flag==CONTINUE){
+                            int code = REFRESH;
+                            Parcel data = Parcel.obtain();
+                            Parcel reply = Parcel.obtain();
+                            mBinder.transact(code,data,reply,0);
+                            CurTime=reply.readInt();
+                            System.out.println(CurTime);
+                        }
+                    }catch (RemoteException e){
+                        e.printStackTrace();
+                    }
+                    Message msg = new Message();
+                    msg.what = REFRESH;
+                    handler.sendMessage(msg);
+                }
+            }
+
+        }
+    }
     @Override
     protected void onDestroy(){
         super.onDestroy();
