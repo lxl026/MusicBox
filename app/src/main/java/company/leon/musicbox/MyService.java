@@ -4,7 +4,6 @@ import android.app.Service;
 import android.content.Intent;
 import android.media.MediaPlayer;
 import android.os.Binder;
-import android.os.Environment;
 import android.os.IBinder;
 import android.os.Parcel;
 import android.os.RemoteException;
@@ -13,10 +12,8 @@ import android.widget.Toast;
 
 import java.io.File;
 
-import static android.os.Environment.DIRECTORY_DOWNLOADS;
-
 public class MyService extends Service {
-    public static final int  START =1, PAUSE =2, CONTINUE=3, STOP =4, PULL=5, REFRESH=6;
+    public static final int  START =1, PAUSE =2, CONTINUE=3, STOP =4, PULL=5, REFRESH=6, CHANGE=7;
     public MyService() {
 
     }
@@ -24,7 +21,7 @@ public class MyService extends Service {
     private IBinder myBinder;
     @Override
     public IBinder onBind(Intent intent) {
-        Log.e("onBind","onBindExe************");
+        Log.d("onBind","onBindExe************");
         return myBinder;
     }
 
@@ -33,9 +30,8 @@ public class MyService extends Service {
         protected boolean onTransact(int code, Parcel data, Parcel reply, int flags) throws RemoteException {
             switch (code){
                 case START:
-                    mediaPlayer.start();
+                    initMediaPlayer(data.readString());
                     Log.d("mediaPlayer","start**************************88");
-                    reply.writeInt(mediaPlayer.getDuration());
                     break;
                 case PAUSE:
                     mediaPlayer.pause();
@@ -51,10 +47,36 @@ public class MyService extends Service {
                     //mediaPlayer.release();
                     break;
                 case PULL:
-                    mediaPlayer.seekTo(data.readInt());
+                    long tmp = data.readLong();
+                    int i = (int) tmp;
+                    mediaPlayer.seekTo(i);
                     break;
                 case REFRESH:
                     reply.writeInt(mediaPlayer.getCurrentPosition());
+                    break;
+                case CHANGE:
+                    String newUrl = data.readString();
+                    try{
+                        //获取Download文件夹下的音乐文件
+                        File file = new File(newUrl);
+                        if(file.exists()){
+                            mediaPlayer.reset();
+
+                            mediaPlayer.setDataSource(file.getPath());
+                            Log.d("mediaPlayer","setPath**************************88");
+                            mediaPlayer.prepare();
+                            Log.d("mediaPlayer","setLoop**************************88");
+                            mediaPlayer.start();
+                            mediaPlayer.setLooping(true);
+                            reply.writeInt(1);
+                        }else {
+                            Toast.makeText(MyService.this,"找不到文件",Toast.LENGTH_SHORT).show();
+                            reply.writeInt(0);
+                            stopSelf();
+                        }
+                    }catch (Exception e){
+                        e.printStackTrace();
+                    }
                     break;
                 default:
                     Log.d("mediaPlayer","TESTTEST**************************88");
@@ -68,8 +90,6 @@ public class MyService extends Service {
     @Override
     public void onCreate() {
         Log.d("Service","onCreate**************************************88");
-        initMediaPlayer();
-        Log.d("mediaPlayer","init**************************88");
         super.onCreate();
     }
 
@@ -99,12 +119,12 @@ public class MyService extends Service {
 
     }
 
-    private void initMediaPlayer() {
+    private void initMediaPlayer(String filePath) {
         try{
             mediaPlayer = new MediaPlayer();
             Log.d("mediaPlayer","new**************************88");
             //获取Download文件夹下的音乐文件
-            File file = new File(Environment.getExternalStoragePublicDirectory(DIRECTORY_DOWNLOADS),"melt.mp3");
+            File file = new File(filePath);
             if(file.exists()){
                 mediaPlayer.setDataSource(file.getPath());
                 Log.d("mediaPlayer","setPath**************************88");
@@ -112,6 +132,8 @@ public class MyService extends Service {
                 Log.d("mediaPlayer","prepare**************************88");
                 mediaPlayer.setLooping(true);
                 Log.d("mediaPlayer","setLoop**************************88");
+
+                mediaPlayer.start();
             }else {
                 Toast.makeText(this,"找不到文件",Toast.LENGTH_SHORT).show();
                 stopSelf();
